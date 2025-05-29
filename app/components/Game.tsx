@@ -1,18 +1,34 @@
-'use client';
+"use client";
 
-import React, { useEffect, useRef, useState } from 'react';
-import { GameData, Player, Enemy, Projectile, Particle } from './types';
-import { CANVAS_WIDTH, CANVAS_HEIGHT, TIME_SCALE_MOVING, TIME_SCALE_STOPPED, PLAYER_SPEED, projectileTypes, enemyTypes, PROJECTILE_SPEED } from './constants';
-import { getDistance, checkWallCollision, checkWallCollisionSeparate, generateOfficeLayout } from './utils';
+import React, { useEffect, useRef, useState } from "react";
+import { GameData, Player, Enemy, Projectile, Particle } from "./types";
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  TIME_SCALE_MOVING,
+  TIME_SCALE_STOPPED,
+  PLAYER_SPEED,
+  projectileTypes,
+  enemyTypes,
+  PROJECTILE_SPEED,
+} from "./constants";
+import {
+  getDistance,
+  checkWallCollision,
+  checkWallCollisionSeparate,
+  generateOfficeLayout,
+} from "./utils";
 
 export default function Game() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [gameState, setGameState] = useState<'menu' | 'playing' | 'gameOver' | 'levelComplete' | 'dying'>('menu');
+  const [gameState, setGameState] = useState<
+    "menu" | "playing" | "gameOver" | "levelComplete" | "dying"
+  >("menu");
   const [score, setScore] = useState(0);
   const [timeScale, setTimeScale] = useState(1);
   const [level, setLevel] = useState(1);
   const [enemiesKilled, setEnemiesKilled] = useState(0);
-  
+
   const gameDataRef = useRef<GameData>({
     player: null,
     enemies: [],
@@ -32,22 +48,22 @@ export default function Game() {
   // Initialize game
   const initGame = () => {
     const data = gameDataRef.current;
-    
+
     // Reset level started flag
     data.levelStarted = false;
-    
+
     // Create player
     data.player = {
-      id: 'player',
+      id: "player",
       position: { x: 0, y: 300 },
       velocity: { x: 0, y: 0 },
       moveDirection: { x: 0, y: 0 },
       radius: 20,
-      color: '#000000',
+      color: "#000000",
       health: 100,
       maxHealth: 100,
       isMoving: false,
-      shootCooldown: 0
+      shootCooldown: 0,
     };
 
     // Generate layout
@@ -58,7 +74,9 @@ export default function Game() {
     let safeSpawn = false;
     let attempts = 0;
     while (!safeSpawn && attempts < 50) {
-      if (!checkWallCollision(data.player.position, data.player.radius + 10, data)) {
+      if (
+        !checkWallCollision(data.player.position, data.player.radius + 10, data)
+      ) {
         safeSpawn = true;
       } else {
         data.player.position.x = -200 + Math.random() * 400;
@@ -77,7 +95,7 @@ export default function Game() {
   const spawnLevelEnemies = (currentLevel: number) => {
     const baseCount = 3;
     const enemyCount = baseCount + currentLevel * 2;
-    
+
     // For level 4, ensure first 5 enemies are shotgunners
     if (currentLevel === 4) {
       // Spawn 5 shotgun enemies first
@@ -100,51 +118,104 @@ export default function Game() {
   const spawnEnemy = (currentLevel: number, forceShotgunner?: boolean) => {
     const data = gameDataRef.current;
     if (!data.player) return;
-    
+
     // Mark that enemies have been spawned for this level
     data.levelStarted = true;
-    
+
     // Level-based enemy variety
-    let types: (keyof typeof enemyTypes)[] = ['intern'];
-    if (currentLevel >= 2) types.push('manager');
-    if (currentLevel >= 3) types.push('security');
-    if (currentLevel >= 4) types.push('janitor');
-    
+    let types: (keyof typeof enemyTypes)[] = ["intern"];
+    if (currentLevel >= 2) types.push("manager");
+    if (currentLevel >= 3) types.push("security");
+    if (currentLevel >= 4) types.push("janitor");
+
     const type = types[Math.floor(Math.random() * types.length)];
     const enemyData = enemyTypes[type];
-    
+
+    // Map boundaries (from generateOfficeLayout)
+    const mapBoundary = 800 - 50; // 800 is half of mapSize, subtract 50 for safety margin
+
     // Try multiple times to find a valid spawn position
     let validPosition = null;
     let attempts = 0;
     const maxAttempts = 50;
-    
+
     while (!validPosition && attempts < maxAttempts) {
       const angle = Math.random() * Math.PI * 2;
-      const distance = 300 + Math.random() * 200;
-      
+      // Reduce spawn distance for higher levels to avoid going outside bounds
+      const minDistance = Math.max(200, 300 - currentLevel * 20);
+      const maxDistance = Math.max(300, 400 - currentLevel * 20);
+      const distance =
+        minDistance + Math.random() * (maxDistance - minDistance);
+
       const testPosition = {
         x: data.player.position.x + Math.cos(angle) * distance,
-        y: data.player.position.y + Math.sin(angle) * distance
+        y: data.player.position.y + Math.sin(angle) * distance,
       };
-      
+
+      // Check map boundaries
+      if (
+        Math.abs(testPosition.x) > mapBoundary ||
+        Math.abs(testPosition.y) > mapBoundary
+      ) {
+        attempts++;
+        continue;
+      }
+
       // Check if position is clear of walls
       if (!checkWallCollision(testPosition, enemyData.radius + 10, data)) {
         validPosition = testPosition;
       }
-      
+
       attempts++;
     }
-    
-    // If no valid position found, spawn anyway but further away
+
+    // If no valid position found, try spawning at a safe position within bounds
     if (!validPosition) {
-      const angle = Math.random() * Math.PI * 2;
-      const distance = 500 + Math.random() * 200;
-      validPosition = {
-        x: data.player.position.x + Math.cos(angle) * distance,
-        y: data.player.position.y + Math.sin(angle) * distance
-      };
+      // Try spawning at cardinal directions within safe bounds
+      const safePositions = [
+        {
+          x: Math.min(
+            Math.max(data.player.position.x + 300, -mapBoundary),
+            mapBoundary
+          ),
+          y: data.player.position.y,
+        },
+        {
+          x: Math.min(
+            Math.max(data.player.position.x - 300, -mapBoundary),
+            mapBoundary
+          ),
+          y: data.player.position.y,
+        },
+        {
+          x: data.player.position.x,
+          y: Math.min(
+            Math.max(data.player.position.y + 300, -mapBoundary),
+            mapBoundary
+          ),
+        },
+        {
+          x: data.player.position.x,
+          y: Math.min(
+            Math.max(data.player.position.y - 300, -mapBoundary),
+            mapBoundary
+          ),
+        },
+      ];
+
+      for (const pos of safePositions) {
+        if (!checkWallCollision(pos, enemyData.radius + 10, data)) {
+          validPosition = pos;
+          break;
+        }
+      }
+
+      // Last resort: spawn at center of map
+      if (!validPosition) {
+        validPosition = { x: 0, y: 0 };
+      }
     }
-    
+
     const enemy: Enemy = {
       id: `enemy_${Date.now()}_${Math.random()}`,
       position: validPosition,
@@ -155,22 +226,29 @@ export default function Game() {
       maxHealth: 1,
       target: { x: 0, y: 0 },
       shootCooldown: 0,
-      aiState: 'idle',
+      aiState: "idle",
       type: type,
       // Shotgunner enemies: forced in level 4 (first 5), 30% chance in level 5
-      shotgunner: forceShotgunner !== undefined ? forceShotgunner : (currentLevel >= 5 && Math.random() < 0.3)
+      shotgunner:
+        forceShotgunner !== undefined
+          ? forceShotgunner
+          : currentLevel >= 5 && Math.random() < 0.3,
     };
-    
+
     data.enemies.push(enemy);
   };
 
   // Create particle effect
-  const createParticles = (position: { x: number; y: number }, color: string, count: number = 5) => {
+  const createParticles = (
+    position: { x: number; y: number },
+    color: string,
+    count: number = 5
+  ) => {
     const data = gameDataRef.current;
     for (let i = 0; i < count; i++) {
       const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const speed = 100 + Math.random() * 200;
-      
+
       data.particles.push({
         x: position.x,
         y: position.y,
@@ -179,7 +257,7 @@ export default function Game() {
         life: 1,
         maxLife: 1,
         color: color,
-        size: 3 + Math.random() * 5
+        size: 3 + Math.random() * 5,
       });
     }
   };
@@ -191,7 +269,7 @@ export default function Game() {
     for (let i = 0; i < 30; i++) {
       const angle = (Math.PI * 2 * i) / 30;
       const speed = 200 + Math.random() * 300;
-      
+
       data.particles.push({
         x: position.x,
         y: position.y,
@@ -199,16 +277,16 @@ export default function Game() {
         vy: Math.sin(angle) * speed,
         life: 1,
         maxLife: 1,
-        color: '#000000',
-        size: 5 + Math.random() * 10
+        color: "#000000",
+        size: 5 + Math.random() * 10,
       });
     }
-    
+
     // Create inner particles
     for (let i = 0; i < 20; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 50 + Math.random() * 150;
-      
+
       data.particles.push({
         x: position.x,
         y: position.y,
@@ -216,66 +294,66 @@ export default function Game() {
         vy: Math.sin(angle) * speed,
         life: 1,
         maxLife: 1,
-        color: '#666666',
-        size: 3 + Math.random() * 7
+        color: "#666666",
+        size: 3 + Math.random() * 7,
       });
     }
   };
 
   // Handle input
   useEffect(() => {
-    if (gameState !== 'playing') return;
-    
+    if (gameState !== "playing") return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       gameDataRef.current.keys[e.key.toLowerCase()] = true;
     };
-    
+
     const handleKeyUp = (e: KeyboardEvent) => {
       e.preventDefault();
       gameDataRef.current.keys[e.key.toLowerCase()] = false;
     };
-    
+
     const handleMouseMove = (e: MouseEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      
+
       const rect = canvas.getBoundingClientRect();
       gameDataRef.current.mouse.x = e.clientX - rect.left;
       gameDataRef.current.mouse.y = e.clientY - rect.top;
     };
-    
+
     const handleMouseDown = (e: MouseEvent) => {
       e.preventDefault();
       gameDataRef.current.mouse.isDown = true;
     };
-    
+
     const handleMouseUp = (e: MouseEvent) => {
       e.preventDefault();
       gameDataRef.current.mouse.isDown = false;
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("mouseup", handleMouseUp);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [gameState]);
 
   // Update game
   const updateGame = (deltaTime: number) => {
     const data = gameDataRef.current;
-    
+
     // Continue updating particles even during death animation
-    if (gameState === 'dying') {
+    if (gameState === "dying") {
       // Only update particles during death
       data.particles.forEach((particle, index) => {
         particle.x += particle.vx * deltaTime;
@@ -283,14 +361,14 @@ export default function Game() {
         particle.vx *= 0.95;
         particle.vy *= 0.95;
         particle.life -= deltaTime * 1.5; // Slower fade during death
-        
+
         if (particle.life <= 0) {
           data.particles.splice(index, 1);
         }
       });
       return;
     }
-    
+
     if (!data.player) return;
 
     // Limit delta time
@@ -298,39 +376,42 @@ export default function Game() {
 
     // Check player movement BEFORE applying time scale
     const keys = data.keys;
-    const moveX = (keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0);
-    const moveY = (keys['s'] ? 1 : 0) - (keys['w'] ? 1 : 0);
-    
+    const moveX = (keys["d"] ? 1 : 0) - (keys["a"] ? 1 : 0);
+    const moveY = (keys["s"] ? 1 : 0) - (keys["w"] ? 1 : 0);
+
     data.player.moveDirection = { x: moveX, y: moveY };
     const isMoving = moveX !== 0 || moveY !== 0;
     data.player.isMoving = isMoving;
-    
+
     // Handle shoot time burst
     if (data.shootTimeBurst && data.shootTimeBurst > 0) {
       data.shootTimeBurst -= deltaTime;
       if (data.shootTimeBurst < 0) data.shootTimeBurst = 0;
     }
-    
+
     // Calculate time scale locally
-    const targetTimeScale = isMoving || (data.shootTimeBurst ?? 0) > 0 ? TIME_SCALE_MOVING : TIME_SCALE_STOPPED;
+    const targetTimeScale =
+      isMoving || (data.shootTimeBurst ?? 0) > 0
+        ? TIME_SCALE_MOVING
+        : TIME_SCALE_STOPPED;
     const timeScaleSpeed = 0.15;
-    
+
     // Get the current time scale from gameDataRef (or initialize it)
     if (data.currentTimeScale === undefined) {
       data.currentTimeScale = 1;
     }
-    
+
     // Calculate new time scale
     const diff = targetTimeScale - data.currentTimeScale;
     const newTimeScale = data.currentTimeScale + diff * timeScaleSpeed;
     data.currentTimeScale = newTimeScale;
-    
+
     // Update React state for UI
     setTimeScale(newTimeScale);
 
     // Player always moves at normal speed
     const playerDelta = deltaTime;
-    
+
     // Everything else uses scaled time with the locally calculated time scale
     const scaledDelta = deltaTime * newTimeScale;
 
@@ -345,11 +426,17 @@ export default function Game() {
     }
 
     // Update player position
-    const newPlayerX = data.player.position.x + data.player.velocity.x * playerDelta;
-    const newPlayerY = data.player.position.y + data.player.velocity.y * playerDelta;
-    
-    const collision = checkWallCollisionSeparate({ x: newPlayerX, y: newPlayerY }, data.player.radius, data);
-    
+    const newPlayerX =
+      data.player.position.x + data.player.velocity.x * playerDelta;
+    const newPlayerY =
+      data.player.position.y + data.player.velocity.y * playerDelta;
+
+    const collision = checkWallCollisionSeparate(
+      { x: newPlayerX, y: newPlayerY },
+      data.player.radius,
+      data
+    );
+
     if (!collision.x) {
       data.player.position.x = newPlayerX;
     }
@@ -371,45 +458,61 @@ export default function Game() {
     // Update enemies with scaled time
     data.enemies.forEach((enemy, index) => {
       updateEnemyAI(enemy, scaledDelta);
-      
+
       // Enemy-enemy collision avoidance
       data.enemies.forEach((other, otherIndex) => {
         if (index !== otherIndex) {
           const dist = getDistance(enemy.position, other.position);
           const minDist = enemy.radius + other.radius;
-          
+
           if (dist < minDist && dist > 0) {
             const dx = enemy.position.x - other.position.x;
             const dy = enemy.position.y - other.position.y;
-            const pushForce = (minDist - dist) / dist * 0.5;
-            
+            const pushForce = ((minDist - dist) / dist) * 0.5;
+
             // Check if the new position would be in a wall before applying
             const newX = enemy.position.x + dx * pushForce;
             const newY = enemy.position.y + dy * pushForce;
-            
-            if (!checkWallCollision({ x: newX, y: enemy.position.y }, enemy.radius, data)) {
+
+            if (
+              !checkWallCollision(
+                { x: newX, y: enemy.position.y },
+                enemy.radius,
+                data
+              )
+            ) {
               enemy.position.x = newX;
             }
-            if (!checkWallCollision({ x: enemy.position.x, y: newY }, enemy.radius, data)) {
+            if (
+              !checkWallCollision(
+                { x: enemy.position.x, y: newY },
+                enemy.radius,
+                data
+              )
+            ) {
               enemy.position.y = newY;
             }
           }
         }
       });
-      
-      if (data.player && getDistance(enemy.position, data.player.position) < enemy.radius + data.player.radius) {
+
+      if (
+        data.player &&
+        getDistance(enemy.position, data.player.position) <
+          enemy.radius + data.player.radius
+      ) {
         // Create shatter effect and start dying state
         createShatterEffect(data.player.position);
-        setGameState('dying');
+        setGameState("dying");
         data.player = null; // Remove player
         return;
       }
-      
+
       if (enemy.health !== undefined && enemy.health <= 0) {
-        createParticles(enemy.position, '#FF0000', 8);
+        createParticles(enemy.position, "#FF0000", 8);
         data.enemies.splice(index, 1);
-        setScore(prev => prev + 100);
-        setEnemiesKilled(prev => prev + 1);
+        setScore((prev) => prev + 100);
+        setEnemiesKilled((prev) => prev + 1);
       }
     });
 
@@ -424,26 +527,35 @@ export default function Game() {
       }
 
       // Check collisions
-      if (projectile.owner === 'player') {
+      if (projectile.owner === "player") {
         for (const enemy of data.enemies) {
-          if (getDistance(projectile.position, enemy.position) < projectile.radius + enemy.radius) {
+          if (
+            getDistance(projectile.position, enemy.position) <
+            projectile.radius + enemy.radius
+          ) {
             enemy.health! -= projectile.damage;
-            createParticles(projectile.position, '#FF4444', 5);
+            createParticles(projectile.position, "#FF4444", 5);
             return false; // Remove projectile
           }
         }
       } else if (data.player) {
-        if (getDistance(projectile.position, data.player.position) < projectile.radius + data.player.radius) {
+        if (
+          getDistance(projectile.position, data.player.position) <
+          projectile.radius + data.player.radius
+        ) {
           // Create shatter effect and start dying state
           createShatterEffect(data.player.position);
-          setGameState('dying');
+          setGameState("dying");
           data.player = null; // Remove player
           return false; // Remove projectile
         }
       }
 
       // Remove projectiles that are too far away
-      if (data.player && getDistance(projectile.position, data.player.position) > 1000) {
+      if (
+        data.player &&
+        getDistance(projectile.position, data.player.position) > 1000
+      ) {
         return false;
       }
 
@@ -457,19 +569,23 @@ export default function Game() {
       particle.vx *= 0.95;
       particle.vy *= 0.95;
       particle.life -= scaledDelta * 2;
-      
+
       if (particle.life <= 0) {
         data.particles.splice(index, 1);
       }
     });
 
     // Check level completion
-    if (data.enemies.length === 0 && gameState === 'playing' && data.levelStarted) {
+    if (
+      data.enemies.length === 0 &&
+      gameState === "playing" &&
+      data.levelStarted
+    ) {
       if (level < 5) {
-        setGameState('levelComplete');
+        setGameState("levelComplete");
       } else {
         // Game won!
-        setGameState('gameOver');
+        setGameState("gameOver");
       }
     }
   };
@@ -480,15 +596,16 @@ export default function Game() {
     if (!data.player) return;
 
     const distToPlayer = getDistance(enemy.position, data.player.position);
-    const enemyData = enemyTypes[enemy.type as keyof typeof enemyTypes] || enemyTypes.intern;
-    
+    const enemyData =
+      enemyTypes[enemy.type as keyof typeof enemyTypes] || enemyTypes.intern;
+
     // Always chase the player, regardless of line of sight
-    enemy.aiState = distToPlayer < 250 ? 'attacking' : 'chasing';
+    enemy.aiState = distToPlayer < 250 ? "attacking" : "chasing";
 
     const dx = data.player.position.x - enemy.position.x;
     const dy = data.player.position.y - enemy.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    
+
     if (dist > 0) {
       enemy.velocity.x = (dx / dist) * enemyData.speed;
       enemy.velocity.y = (dy / dist) * enemyData.speed;
@@ -496,19 +613,23 @@ export default function Game() {
 
     // Only shoot if close enough and have line of sight (check wall collision)
     enemy.shootCooldown -= deltaTime;
-    if (enemy.aiState === 'attacking' && enemy.shootCooldown <= 0 && dist < 400) {
+    if (
+      enemy.aiState === "attacking" &&
+      enemy.shootCooldown <= 0 &&
+      dist < 400
+    ) {
       // Simple line of sight check - cast a ray from enemy to player
       let hasLineOfSight = true;
       const steps = 10;
       for (let i = 1; i < steps; i++) {
-        const checkX = enemy.position.x + (dx / dist) * (dist * i / steps);
-        const checkY = enemy.position.y + (dy / dist) * (dist * i / steps);
+        const checkX = enemy.position.x + (dx / dist) * ((dist * i) / steps);
+        const checkY = enemy.position.y + (dy / dist) * ((dist * i) / steps);
         if (checkWallCollision({ x: checkX, y: checkY }, 5, data)) {
           hasLineOfSight = false;
           break;
         }
       }
-      
+
       if (hasLineOfSight) {
         enemyShoot(enemy);
         enemy.shootCooldown = 2;
@@ -517,7 +638,7 @@ export default function Game() {
 
     const newPos = {
       x: enemy.position.x + enemy.velocity.x * deltaTime,
-      y: enemy.position.y + enemy.velocity.y * deltaTime
+      y: enemy.position.y + enemy.velocity.y * deltaTime,
     };
 
     if (!checkWallCollision(newPos, enemy.radius, data)) {
@@ -526,7 +647,7 @@ export default function Game() {
       // Try sliding along walls
       const newPosX = { x: newPos.x, y: enemy.position.y };
       const newPosY = { x: enemy.position.x, y: newPos.y };
-      
+
       if (!checkWallCollision(newPosX, enemy.radius, data)) {
         enemy.position.x = newPosX.x;
       }
@@ -542,7 +663,8 @@ export default function Game() {
     if (!data.player) return;
 
     const now = Date.now();
-    if (data.player.shootCooldown && now - data.player.shootCooldown < 300) return;
+    if (data.player.shootCooldown && now - data.player.shootCooldown < 300)
+      return;
     data.player.shootCooldown = now;
 
     // Add time burst when shooting (0.15 seconds)
@@ -550,38 +672,40 @@ export default function Game() {
 
     const mouseWorld = {
       x: data.mouse.x + data.camera.x,
-      y: data.mouse.y + data.camera.y
+      y: data.mouse.y + data.camera.y,
     };
-    
+
     const dx = mouseWorld.x - data.player.position.x;
     const dy = mouseWorld.y - data.player.position.y;
     const angle = Math.atan2(dy, dx);
-    
-    const types = Object.keys(projectileTypes) as Array<keyof typeof projectileTypes>;
+
+    const types = Object.keys(projectileTypes) as Array<
+      keyof typeof projectileTypes
+    >;
     const type = types[Math.floor(Math.random() * types.length)];
     const projData = projectileTypes[type];
 
     const projectile: Projectile = {
       id: `proj_${Date.now()}`,
-      position: { 
+      position: {
         x: data.player.position.x + Math.cos(angle) * 30,
-        y: data.player.position.y + Math.sin(angle) * 30
+        y: data.player.position.y + Math.sin(angle) * 30,
       },
       velocity: {
         x: Math.cos(angle) * PROJECTILE_SPEED,
-        y: Math.sin(angle) * PROJECTILE_SPEED
+        y: Math.sin(angle) * PROJECTILE_SPEED,
       },
       radius: projData.radius,
       color: projData.color,
       damage: 1, // Always 1 for one-shot mechanics
-      owner: 'player',
-      type
+      owner: "player",
+      type,
     };
 
     data.projectiles.push(projectile);
-    
+
     // Add muzzle flash particle
-    createParticles(projectile.position, '#FFFF00', 3);
+    createParticles(projectile.position, "#FFFF00", 3);
   };
 
   // Enemy shoot
@@ -592,36 +716,36 @@ export default function Game() {
     const dx = data.player.position.x - enemy.position.x;
     const dy = data.player.position.y - enemy.position.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    
+
     if (dist < 0.01) return;
 
     if (enemy.shotgunner) {
       // Shotgun spread shot
       const baseAngle = Math.atan2(dy, dx);
       const spread = 0.3; // Spread angle
-      
+
       for (let i = -1; i <= 1; i++) {
         const angle = baseAngle + i * spread;
         const projectile: Projectile = {
           id: `proj_${Date.now()}_${Math.random()}`,
-          position: { 
+          position: {
             x: enemy.position.x + Math.cos(angle) * 25,
-            y: enemy.position.y + Math.sin(angle) * 25
+            y: enemy.position.y + Math.sin(angle) * 25,
           },
           velocity: {
             x: Math.cos(angle) * PROJECTILE_SPEED * 0.6,
-            y: Math.sin(angle) * PROJECTILE_SPEED * 0.6
+            y: Math.sin(angle) * PROJECTILE_SPEED * 0.6,
           },
           radius: 4,
-          color: '#FF6600',
+          color: "#FF6600",
           damage: 100, // One-shot damage (though we now set health to 0 directly)
           owner: enemy.id,
-          type: 'stapler'
+          type: "stapler",
         };
         data.projectiles.push(projectile);
       }
-      
-      createParticles(enemy.position, '#FF6600', 5);
+
+      createParticles(enemy.position, "#FF6600", 5);
     } else {
       // Normal single shot
       const projectile: Projectile = {
@@ -629,13 +753,13 @@ export default function Game() {
         position: { ...enemy.position },
         velocity: {
           x: (dx / dist) * PROJECTILE_SPEED * 0.7,
-          y: (dy / dist) * PROJECTILE_SPEED * 0.7
+          y: (dy / dist) * PROJECTILE_SPEED * 0.7,
         },
         radius: 6,
-        color: '#FF0000',
+        color: "#FF0000",
         damage: 100, // One-shot damage (though we now set health to 0 directly)
         owner: enemy.id,
-        type: 'pencil'
+        type: "pencil",
       };
 
       data.projectiles.push(projectile);
@@ -645,9 +769,9 @@ export default function Game() {
   // Render
   const render = (ctx: CanvasRenderingContext2D) => {
     const data = gameDataRef.current;
-    
+
     // Clear
-    ctx.fillStyle = '#FFFFFF';
+    ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     ctx.save();
@@ -657,8 +781,8 @@ export default function Game() {
     const gridSize = 100;
     const startX = Math.floor(data.camera.x / gridSize) * gridSize;
     const startY = Math.floor(data.camera.y / gridSize) * gridSize;
-    
-    ctx.strokeStyle = '#F0F0F0';
+
+    ctx.strokeStyle = "#F0F0F0";
     ctx.lineWidth = 1;
     for (let x = startX; x < startX + CANVAS_WIDTH + gridSize; x += gridSize) {
       ctx.beginPath();
@@ -674,81 +798,99 @@ export default function Game() {
     }
 
     // Walls
-    data.walls.forEach(wall => {
-      ctx.fillStyle = '#333333';
+    data.walls.forEach((wall) => {
+      ctx.fillStyle = "#333333";
       ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
     });
 
+    // Draw boundary warning (red outline for outer walls)
+    ctx.strokeStyle = "#FF0000";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([10, 10]);
+    ctx.strokeRect(-800, -800, 1600, 1600);
+    ctx.setLineDash([]); // Reset line dash
+
     // Projectiles
-    data.projectiles.forEach(proj => {
+    data.projectiles.forEach((proj) => {
       ctx.save();
       ctx.translate(proj.position.x, proj.position.y);
-      
+
       // Add rotation animation
       const rotation = Date.now() * 0.01;
       ctx.rotate(rotation);
-      
+
       ctx.fillStyle = proj.color;
-      ctx.fillRect(-proj.radius/2, -proj.radius/2, proj.radius, proj.radius);
+      ctx.fillRect(
+        -proj.radius / 2,
+        -proj.radius / 2,
+        proj.radius,
+        proj.radius
+      );
       ctx.restore();
     });
 
     // Particles
-    data.particles.forEach(particle => {
+    data.particles.forEach((particle) => {
       ctx.globalAlpha = particle.life * 0.8;
       ctx.fillStyle = particle.color;
       ctx.fillRect(
-        particle.x - particle.size/2 * particle.life, 
-        particle.y - particle.size/2 * particle.life, 
-        particle.size * particle.life, 
+        particle.x - (particle.size / 2) * particle.life,
+        particle.y - (particle.size / 2) * particle.life,
+        particle.size * particle.life,
         particle.size * particle.life
       );
     });
     ctx.globalAlpha = 1;
 
     // Enemies
-    data.enemies.forEach(enemy => {
+    data.enemies.forEach((enemy) => {
       ctx.save();
       ctx.translate(enemy.position.x, enemy.position.y);
-      
+
       // Different colors for enemy types
-      let enemyColor = '#FF0000';
+      let enemyColor = "#FF0000";
       if (enemy.shotgunner) {
-        enemyColor = '#FF6600';
+        enemyColor = "#FF6600";
         // Draw slightly larger
         ctx.scale(1.2, 1.2);
       }
-      
+
       ctx.fillStyle = enemyColor;
       ctx.beginPath();
       ctx.arc(0, 0, enemy.radius, 0, Math.PI * 2);
       ctx.fill();
-      
+
       // Add inner circle for variation
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
       ctx.beginPath();
       ctx.arc(0, 0, enemy.radius * 0.5, 0, Math.PI * 2);
       ctx.fill();
-      
+
       ctx.restore();
     });
 
     // Player
     if (data.player) {
-      ctx.fillStyle = '#000000';
+      ctx.fillStyle = "#000000";
       ctx.beginPath();
-      ctx.arc(data.player.position.x, data.player.position.y, data.player.radius, 0, Math.PI * 2);
+      ctx.arc(
+        data.player.position.x,
+        data.player.position.y,
+        data.player.radius,
+        0,
+        Math.PI * 2
+      );
       ctx.fill();
 
       const mouseWorld = {
         x: data.mouse.x + data.camera.x,
-        y: data.mouse.y + data.camera.y
+        y: data.mouse.y + data.camera.y,
       };
       const dx = mouseWorld.x - data.player.position.x;
       const dy = mouseWorld.y - data.player.position.y;
       const angle = Math.atan2(dy, dx);
-      
-      ctx.strokeStyle = '#666666';
+
+      ctx.strokeStyle = "#666666";
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(data.player.position.x, data.player.position.y);
@@ -768,51 +910,63 @@ export default function Game() {
   // Draw UI
   const drawUI = (ctx: CanvasRenderingContext2D) => {
     const data = gameDataRef.current;
-    
+
     // Level indicator
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 24px Arial';
+    ctx.fillStyle = "#000000";
+    ctx.font = "bold 24px Arial";
     ctx.fillText(`LEVEL ${level}`, 20, 30);
-    
+
     // Enemy count
-    ctx.font = 'bold 16px Arial';
+    ctx.font = "bold 16px Arial";
     ctx.fillText(`ENEMIES: ${data.enemies.length}`, 20, 55);
-    
+
     // Score
-    ctx.fillStyle = '#000000';
-    ctx.font = 'bold 20px Arial';
-    ctx.textAlign = 'right';
+    ctx.fillStyle = "#000000";
+    ctx.font = "bold 20px Arial";
+    ctx.textAlign = "right";
     ctx.fillText(`${score}`, CANVAS_WIDTH - 20, 30);
-    ctx.textAlign = 'left';
-    
+    ctx.textAlign = "left";
+
     // Instructions
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.font = '12px Arial';
-    ctx.fillText('WASD: Move | Mouse: Aim | Click: Shoot', 10, CANVAS_HEIGHT - 10);
-    
+    ctx.fillStyle = "rgba(0,0,0,0.3)";
+    ctx.font = "12px Arial";
+    ctx.fillText(
+      "WASD: Move | Mouse: Aim | Click: Shoot",
+      10,
+      CANVAS_HEIGHT - 10
+    );
+
     // Level-specific hints
     if (data.enemies.length > 0) {
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.font = '14px Arial';
-      ctx.textAlign = 'center';
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.font = "14px Arial";
+      ctx.textAlign = "center";
       if (level === 1) {
-        ctx.fillText('TIME MOVES ONLY WHEN YOU MOVE', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 70);
+        ctx.fillText(
+          "TIME MOVES ONLY WHEN YOU MOVE",
+          CANVAS_WIDTH / 2,
+          CANVAS_HEIGHT - 70
+        );
       } else if (level === 4) {
-        ctx.fillText('WARNING: SHOTGUN ENEMIES INCOMING', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 70);
+        ctx.fillText(
+          "WARNING: SHOTGUN ENEMIES INCOMING",
+          CANVAS_WIDTH / 2,
+          CANVAS_HEIGHT - 70
+        );
       }
-      ctx.fillText('ONE SHOT - ONE KILL', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 50);
-      ctx.textAlign = 'left';
+      ctx.fillText("ONE SHOT - ONE KILL", CANVAS_WIDTH / 2, CANVAS_HEIGHT - 50);
+      ctx.textAlign = "left";
     }
   };
 
   // Game loop
   useEffect(() => {
-    if (gameState !== 'playing' && gameState !== 'dying') return;
+    if (gameState !== "playing" && gameState !== "dying") return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
+
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     let animationFrameId: number;
@@ -821,20 +975,21 @@ export default function Game() {
 
     const gameLoop = (timestamp: number) => {
       if (!initialized) {
-        if (gameState === 'playing') {
+        if (gameState === "playing") {
           initGame();
         }
         gameDataRef.current.lastTime = timestamp;
         initialized = true;
       }
-      
+
       const deltaTime = (timestamp - gameDataRef.current.lastTime) / 1000;
       gameDataRef.current.lastTime = timestamp;
 
-      if (gameState === 'dying') {
+      if (gameState === "dying") {
         dyingTimer += deltaTime;
-        if (dyingTimer > 1.0) { // Wait 1 second
-          setGameState('gameOver');
+        if (dyingTimer > 1.0) {
+          // Wait 1 second
+          setGameState("gameOver");
           return;
         }
       }
@@ -854,7 +1009,7 @@ export default function Game() {
   }, [gameState, level]);
 
   const startGame = () => {
-    setGameState('playing');
+    setGameState("playing");
     setScore(0);
     gameDataRef.current = {
       player: null,
@@ -873,9 +1028,12 @@ export default function Game() {
     };
   };
 
-  if (gameState === 'menu') {
+  if (gameState === "menu") {
     return (
-      <div className="flex flex-col items-center justify-center text-black bg-white" style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
+      <div
+        className="flex flex-col items-center justify-center text-black bg-white"
+        style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+      >
         <h1 className="text-8xl font-bold mb-8">9-to-DIE</h1>
         <p className="text-2xl mb-12">TIME MOVES ONLY WHEN YOU MOVE</p>
         <button
@@ -888,19 +1046,24 @@ export default function Game() {
     );
   }
 
-  if (gameState === 'levelComplete') {
+  if (gameState === "levelComplete") {
     return (
-      <div className="flex flex-col items-center justify-center text-black bg-white" style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
+      <div
+        className="flex flex-col items-center justify-center text-black bg-white"
+        style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+      >
         <h1 className="text-6xl font-bold mb-4">LEVEL {level} COMPLETE</h1>
         <p className="text-2xl mb-2">{score} POINTS</p>
         <p className="text-xl mb-8">ENEMIES KILLED: {enemiesKilled}</p>
         {level === 3 && (
-          <p className="text-2xl mb-4 text-red-600 font-bold">WARNING: SHOTGUN ENEMIES AHEAD!</p>
+          <p className="text-2xl mb-4 text-red-600 font-bold">
+            WARNING: SHOTGUN ENEMIES AHEAD!
+          </p>
         )}
         <button
           onClick={() => {
-            setLevel(prev => prev + 1);
-            setGameState('playing');
+            setLevel((prev) => prev + 1);
+            setGameState("playing");
             initGame();
           }}
           className="px-12 py-6 bg-black text-white font-bold text-2xl hover:bg-red-600 transition-colors"
@@ -911,10 +1074,15 @@ export default function Game() {
     );
   }
 
-  if (gameState === 'gameOver') {
+  if (gameState === "gameOver") {
     return (
-      <div className="flex flex-col items-center justify-center text-black bg-white" style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}>
-        <h1 className="text-8xl font-bold mb-8 text-red-600">{level === 5 && enemiesKilled > 0 ? 'YOU WIN!' : 'GAME OVER'}</h1>
+      <div
+        className="flex flex-col items-center justify-center text-black bg-white"
+        style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+      >
+        <h1 className="text-8xl font-bold mb-8 text-red-600">
+          {level === 5 && enemiesKilled > 0 ? "YOU WIN!" : "GAME OVER"}
+        </h1>
         <p className="text-3xl mb-4">{score} POINTS</p>
         <p className="text-xl mb-2">LEVEL {level}</p>
         <p className="text-xl mb-12">TOTAL KILLS: {enemiesKilled}</p>
