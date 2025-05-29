@@ -49,6 +49,9 @@ export default function Game() {
   const initGame = () => {
     const data = gameDataRef.current;
 
+    // Reset mouse state
+    data.mouse.isDown = false;
+
     // Reset level started flag
     data.levelStarted = false;
 
@@ -94,7 +97,12 @@ export default function Game() {
   // Spawn enemies for level
   const spawnLevelEnemies = (currentLevel: number) => {
     const baseCount = 3;
-    const enemyCount = baseCount + currentLevel * 2;
+    let enemyCount = baseCount + currentLevel * 2;
+
+    // Reduce enemies on level 5
+    if (currentLevel === 5) {
+      enemyCount = 8; // Reduced from 13 to 8 (5 less enemies)
+    }
 
     // For level 4, ensure first 5 enemies are shotgunners
     if (currentLevel === 4) {
@@ -131,86 +139,81 @@ export default function Game() {
     const type = types[Math.floor(Math.random() * types.length)];
     const enemyData = enemyTypes[type];
 
-    // Map boundaries (from generateOfficeLayout)
-    const mapBoundary = 800 - 50; // 800 is half of mapSize, subtract 50 for safety margin
+    // Map boundaries - more conservative for different screen resolutions
+    const mapBoundary = 700; // Reduced from 750 to be safer
 
     // Try multiple times to find a valid spawn position
     let validPosition = null;
     let attempts = 0;
-    const maxAttempts = 50;
+    const maxAttempts = 100;
+
+    // Minimum distance from player (to avoid spawning on top of them)
+    const minDistanceFromPlayer = 200;
 
     while (!validPosition && attempts < maxAttempts) {
-      const angle = Math.random() * Math.PI * 2;
-      // Reduce spawn distance for higher levels to avoid going outside bounds
-      const minDistance = Math.max(200, 300 - currentLevel * 20);
-      const maxDistance = Math.max(300, 400 - currentLevel * 20);
-      const distance =
-        minDistance + Math.random() * (maxDistance - minDistance);
-
+      // Random position within the square map (not circular)
       const testPosition = {
-        x: data.player.position.x + Math.cos(angle) * distance,
-        y: data.player.position.y + Math.sin(angle) * distance,
+        x: -mapBoundary + Math.random() * (mapBoundary * 2),
+        y: -mapBoundary + Math.random() * (mapBoundary * 2),
       };
 
-      // Check map boundaries
-      if (
-        Math.abs(testPosition.x) > mapBoundary ||
-        Math.abs(testPosition.y) > mapBoundary
-      ) {
+      // Check distance from player
+      const distFromPlayer = getDistance(testPosition, data.player.position);
+      if (distFromPlayer < minDistanceFromPlayer) {
         attempts++;
         continue;
       }
 
       // Check if position is clear of walls
-      if (!checkWallCollision(testPosition, enemyData.radius + 10, data)) {
+      if (!checkWallCollision(testPosition, enemyData.radius + 20, data)) {
         validPosition = testPosition;
       }
 
       attempts++;
     }
 
-    // If no valid position found, try spawning at a safe position within bounds
+    // If no valid position found, try grid-based positions
     if (!validPosition) {
-      // Try spawning at cardinal directions within safe bounds
-      const safePositions = [
-        {
-          x: Math.min(
-            Math.max(data.player.position.x + 300, -mapBoundary),
-            mapBoundary
-          ),
-          y: data.player.position.y,
-        },
-        {
-          x: Math.min(
-            Math.max(data.player.position.x - 300, -mapBoundary),
-            mapBoundary
-          ),
-          y: data.player.position.y,
-        },
-        {
-          x: data.player.position.x,
-          y: Math.min(
-            Math.max(data.player.position.y + 300, -mapBoundary),
-            mapBoundary
-          ),
-        },
-        {
-          x: data.player.position.x,
-          y: Math.min(
-            Math.max(data.player.position.y - 300, -mapBoundary),
-            mapBoundary
-          ),
-        },
+      const gridPositions = [];
+      const step = 150;
+
+      for (let x = -mapBoundary + step; x < mapBoundary - step; x += step) {
+        for (let y = -mapBoundary + step; y < mapBoundary - step; y += step) {
+          const pos = { x, y };
+          const distFromPlayer = getDistance(pos, data.player.position);
+
+          if (
+            distFromPlayer >= minDistanceFromPlayer &&
+            !checkWallCollision(pos, enemyData.radius + 20, data)
+          ) {
+            gridPositions.push(pos);
+          }
+        }
+      }
+
+      if (gridPositions.length > 0) {
+        validPosition =
+          gridPositions[Math.floor(Math.random() * gridPositions.length)];
+      }
+    }
+
+    // Last resort: spawn at map corners
+    if (!validPosition) {
+      const corners = [
+        { x: -mapBoundary + 100, y: -mapBoundary + 100 },
+        { x: mapBoundary - 100, y: -mapBoundary + 100 },
+        { x: -mapBoundary + 100, y: mapBoundary - 100 },
+        { x: mapBoundary - 100, y: mapBoundary - 100 },
       ];
 
-      for (const pos of safePositions) {
-        if (!checkWallCollision(pos, enemyData.radius + 10, data)) {
-          validPosition = pos;
+      for (const corner of corners) {
+        if (!checkWallCollision(corner, enemyData.radius + 20, data)) {
+          validPosition = corner;
           break;
         }
       }
 
-      // Last resort: spawn at center of map
+      // Absolute last resort
       if (!validPosition) {
         validPosition = { x: 0, y: 0 };
       }
@@ -807,7 +810,7 @@ export default function Game() {
     ctx.strokeStyle = "#FF0000";
     ctx.lineWidth = 3;
     ctx.setLineDash([10, 10]);
-    ctx.strokeRect(-800, -800, 1600, 1600);
+    ctx.strokeRect(-700, -700, 1400, 1400);
     ctx.setLineDash([]); // Reset line dash
 
     // Projectiles
@@ -1009,6 +1012,11 @@ export default function Game() {
   }, [gameState, level]);
 
   const startGame = () => {
+    // Reset mouse state
+    if (gameDataRef.current) {
+      gameDataRef.current.mouse.isDown = false;
+    }
+
     setGameState("playing");
     setScore(0);
     gameDataRef.current = {
@@ -1062,6 +1070,8 @@ export default function Game() {
         )}
         <button
           onClick={() => {
+            // Reset mouse state to prevent auto-shooting
+            gameDataRef.current.mouse.isDown = false;
             setLevel((prev) => prev + 1);
             setGameState("playing");
             initGame();
